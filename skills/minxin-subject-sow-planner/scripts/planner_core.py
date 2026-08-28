@@ -25,6 +25,13 @@ ALL_SHEETS = EDITABLE_SHEETS + GENERATED_SHEETS
 HONG_KONG_TZ = ZoneInfo("Asia/Hong_Kong")
 REPETITION_PURPOSES = {"RETRIEVAL", "CONSOLIDATION", "SPIRAL", "TRANSFER", "ROUTINE"}
 MAJOR_CONCERNS = {"MC1", "MC2", "MC3"}
+PROGRAMME_CODES = {"HKDSE", "IGCSE", "GCE", "IB", "MYP", "DP"}
+AUTHORITY_PLACEHOLDER = re.compile(
+    r"\b(?:TBC|TBD|placeholder|planning required|to be confirmed|"
+    r"requires? (?:teacher )?confirmation|exact (?:chapter|section|descriptor)[^.;]*confirm|"
+    r"informed[ -]by fixture)\b",
+    re.I,
+)
 
 HEADERS = {
     "Setup": ["key", "value", "notes"],
@@ -217,6 +224,37 @@ def grade_number(value: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def canonical_scope(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", "-", str(value or "").upper()).strip("-")
+
+
+def course_scope_candidates(course: dict) -> set[str]:
+    course_id = canonical_scope(course.get("course_id"))
+    grade = canonical_scope(course.get("grade_level"))
+    framework = canonical_scope(course.get("curriculum_framework"))
+    level = canonical_scope(course.get("course_level"))
+    candidates = {value for value in (course_id, grade, framework, level) if value}
+    current_grade = grade_number(str(course.get("grade_level", "")))
+    grade_code = f"G{current_grade}" if current_grade is not None else ""
+    if grade_code:
+        candidates.add(grade_code)
+    framework_words = set(re.findall(r"[A-Z0-9]+", framework))
+    programmes = PROGRAMME_CODES.intersection(framework_words)
+    for programme in programmes:
+        candidates.add(programme)
+        if grade_code:
+            candidates.add(f"{grade_code}-{programme}")
+    return candidates
+
+
+def slot_applies_to_course(slot: dict, course: dict) -> bool:
+    return (
+        canonical_scope(slot.get("course_id")) == canonical_scope(course.get("course_id"))
+        and canonical_scope(slot.get("class_id")) == canonical_scope(course.get("class_id"))
+        and truthy(slot.get("active", True))
+    )
+
+
 def event_applies(event: dict, course: dict) -> bool:
     scope_type = str(event.get("scope_type", "SCHOOL")).upper()
     scope_id = str(event.get("scope_id", "ALL"))
@@ -240,11 +278,10 @@ def event_applies(event: dict, course: dict) -> bool:
         current = grade_number(grade)
         return current is not None and ((scope_id.upper() == "PRIMARY" and current <= 6) or (scope_id.upper() == "SECONDARY" and current >= 7))
     if scope_type == "COURSE_LIST":
-        tokens = [token.strip().casefold() for token in re.split(r"[;,\n]", scope_id) if token.strip()]
-        candidates = {course_id.strip().casefold(), grade.strip().casefold(), framework.strip().casefold()}
-        return bool(candidates.intersection(tokens))
+        tokens = {canonical_scope(token) for token in re.split(r"[;,\n]", scope_id) if token.strip()}
+        return bool(course_scope_candidates(course).intersection(tokens))
     if scope_type == "CLASS":
-        return scope_id == str(course.get("class_id", ""))
+        return canonical_scope(scope_id) == canonical_scope(course.get("class_id"))
     return False
 
 
@@ -276,7 +313,7 @@ def relevant_events_for_week(week: dict, course: dict, events: list[dict]) -> li
 
 
 def compute_available_periods(course: dict, week: dict, slots: list[dict], events: list[dict]) -> int | str:
-    applicable = [slot for slot in slots if str(slot.get("course_id")) == str(course.get("course_id")) and truthy(slot.get("active", True))]
+    applicable = [slot for slot in slots if slot_applies_to_course(slot, course)]
     if not applicable:
         return "UNCOMPUTED"
     start, end = parse_date(week["date_start"]), parse_date(week["date_end"])
@@ -462,9 +499,8 @@ def validate_tables(
     units = {row.get("unit_id"): row for row in tables.get("Units", [])}
     objectives = {row.get("objective_id"): row for row in tables.get("Objectives", [])}
     course_week = Counter((row.get("course_id"), row.get("week_id")) for row in tables.get("Weekly_Plan", []))
-    slot_courses = {str(row.get("course_id")) for row in tables.get("Timetable_Slots", []) if truthy(row.get("active", True))}
 
-    course_required = ("subject_name", "kla", "curriculum_framework", "key_stage", "grade_level", "output_language", "required_content", "assessment_pattern", "owner", "status")
+    course_required = ("subject_name", "kla", "curriculum_framework", "key_stage", "grade_level", "output_language", "required_content", "assessment_pattern", "alignment_status", "owner", "status")
     for course_id, course in courses.items():
         missing = [field for field in course_required if not str(course.get(field, "")).strip()]
         if missing:
@@ -476,8 +512,8 @@ def validate_tables(
     for refs in semantic_events.values():
         if len(refs) > 1:
             issues.append(qa_record("MEDIUM", "Calendar_Events", "DUPLICATE_CALENDAR_EVENT", ";".join(refs), "Calendar rows describe the same scoped event and require deduplication or confirmation."))
-    for course_id in courses:
-        if str(course_id) not in slot_courses:
+    for course_id, course in courses.items():
+        if not any(slot_applies_to_course(slot, course) for slot in tables.get("Timetable_Slots", [])):
             issues.append(qa_record("HIGH", "Timetable_Slots", "CAPACITY_UNCOMPUTED", str(course_id), "No active timetable slots exist for this course; available periods remain UNCOMPUTED.", stop="Add the current official timetable before claiming timetable fit or release."))
     for pair, count in course_week.items():
         if count > 1:
@@ -524,6 +560,7 @@ def validate_tables(
         if purpose and purpose not in REPETITION_PURPOSES:
             issues.append(qa_record("HIGH", "Weekly_Plan", "INVALID_REPETITION_PURPOSE", plan_id, f"Unknown repetition purpose: {purpose}.", stop="Use the documented repetition-purpose list."))
 
+    informed_objectives: dict[str, list[str]] = defaultdict(list)
     for objective in tables.get("Objectives", []):
         current = objective.get("objective_id")
         required = ("objective_text", "knowledge_type", "progression_level", "success_evidence", "alignment_status", "status")
@@ -531,11 +568,14 @@ def validate_tables(
         if missing:
             issues.append(qa_record("HIGH", "Objectives", "INCOMPLETE_OBJECTIVE", str(current), f"Required objective fields are blank: {', '.join(missing)}.", stop="Complete the assessable objective record."))
         alignment = str(objective.get("alignment_status", "")).upper()
-        anchors_complete = all(str(objective.get(field, "")).strip() for field in ("standard_anchor", "source_ref"))
+        anchors = [str(objective.get(field, "")).strip() for field in ("standard_anchor", "source_ref")]
+        anchors_complete = all(anchors) and not any(AUTHORITY_PLACEHOLDER.search(value) for value in anchors)
         if alignment == "VERIFIED" and not anchors_complete:
             issues.append(qa_record("HIGH", "Objectives", "UNSUPPORTED_OBJECTIVE_ALIGNMENT", str(current), "VERIFIED objective alignment requires a standard anchor and source reference.", stop="Add the exact source anchor or change to INFORMED_BY."))
-        elif alignment == "INFORMED_BY" and not anchors_complete:
-            issues.append(qa_record("MEDIUM", "Objectives", "OBJECTIVE_AUTHORITY_PLANNING_REQUIRED", str(current), "INFORMED_BY objective is missing a standard anchor or source reference.", owner=str(courses.get(objective.get("course_id"), {}).get("owner") or "Curriculum owner"), stop="Record the source anchor before formal approval."))
+        elif alignment == "INFORMED_BY":
+            informed_objectives[str(objective.get("course_id", ""))].append(str(current))
+        elif alignment not in {"VERIFIED", "INFORMED_BY"}:
+            issues.append(qa_record("HIGH", "Objectives", "INVALID_OBJECTIVE_ALIGNMENT_STATUS", str(current), f"Unknown objective alignment status: {alignment or '(blank)' }.", stop="Use VERIFIED or INFORMED_BY."))
         if current not in valid_objective_refs and str(objective.get("status", "")).upper() != "PLANNING_REQUIRED":
             issues.append(qa_record("HIGH", "Objectives", "UNSCHEDULED_OBJECTIVE", str(current), "Objective is not referenced in a valid instructional week.", stop="Schedule the objective before the applicable assessment or mark it PLANNING_REQUIRED."))
         for prerequisite in split_refs(objective.get("prerequisite_refs")):
@@ -545,6 +585,11 @@ def validate_tables(
                 issues.append(qa_record("HIGH", "Objectives", "CROSS_COURSE_PREREQUISITE", f"{current};{prerequisite}", "Prerequisite belongs to another course.", stop="Keep prerequisites course-scoped."))
             elif first_objective_week.get(prerequisite, -1) > first_objective_week.get(current, 9999):
                 issues.append(qa_record("HIGH", "Objectives", "PREREQUISITE_ORDER", f"{current};{prerequisite}", "Prerequisite is first taught after the dependent objective.", stop="Restore the intended progression."))
+
+    plans_by_unit: dict[str, list[dict]] = defaultdict(list)
+    for plan in tables.get("Weekly_Plan", []):
+        if str(plan.get("status", "")).upper() != "CALENDAR_BLOCK":
+            plans_by_unit[str(plan.get("unit_id", ""))].append(plan)
 
     for unit in tables.get("Units", []):
         unit_id = str(unit.get("unit_id", ""))
@@ -562,15 +607,50 @@ def validate_tables(
             issues.append(qa_record("MEDIUM", "Units", "MAJOR_CONCERN_OVERMAPPING", unit_id, "A unit normally maps to one or two Major Concerns; confirm that every mapping changes student action or evidence."))
         if concern_refs and not str(unit.get("major_concern_evidence", "")).strip():
             issues.append(qa_record("MEDIUM", "Units", "MAJOR_CONCERN_WITHOUT_EVIDENCE", str(unit.get("unit_id")), "Major Concern mapping has no observable student action or evidence."))
+        if str(unit.get("schedule_policy", "")).upper() == "BEFORE_ASSESSMENT":
+            scheduled = [plan for plan in plans_by_unit.get(unit_id, []) if plan.get("week_id") in weeks]
+            if not scheduled:
+                issues.append(qa_record("HIGH", "Units", "BEFORE_ASSESSMENT_UNSCHEDULED", unit_id, "BEFORE_ASSESSMENT unit has no valid scheduled week.", stop="Schedule the unit before its applicable assessment."))
+            else:
+                unit_start = min(parse_date(weeks[plan["week_id"]]["date_start"]) for plan in scheduled)
+                unit_end = max(parse_date(weeks[plan["week_id"]]["date_end"]) for plan in scheduled)
+                course = courses.get(unit.get("course_id"), {})
+                assessment_events = sorted(
+                    (
+                        event for event in tables.get("Calendar_Events", [])
+                        if event_applies(event, course)
+                        and (
+                            str(event.get("event_type", "")).upper() == "ASSESSMENT"
+                            or re.search(r"\b(?:assessment|examination|exam|mock)\b", str(event.get("title", "")), re.I)
+                        )
+                        and parse_date(event.get("end_inclusive")) >= unit_start
+                    ),
+                    key=lambda event: parse_date(event.get("start")),
+                )
+                if not assessment_events:
+                    issues.append(qa_record("HIGH", "Units", "ASSESSMENT_WINDOW_NOT_FOUND", unit_id, "BEFORE_ASSESSMENT unit has no applicable later assessment window.", stop="Link or confirm the applicable assessment window."))
+                else:
+                    target = assessment_events[0]
+                    if unit_end >= parse_date(target.get("start")):
+                        issues.append(qa_record("HIGH", "Units", "BEFORE_ASSESSMENT_TIMING", f"{unit_id};{target.get('event_id')}", f"Unit ends {unit_end.isoformat()} but the applicable assessment starts {target.get('start')}.", stop="Move the unit before the assessment or change the scheduling policy with approval."))
 
     for course in tables.get("Course_Brief", []):
         status = str(course.get("alignment_status", "")).upper()
         authority_fields = ("authority_title", "authority_version", "authority_section", "authority_url", "authority_accessed")
-        authority_complete = all(str(course.get(field, "")).strip() for field in authority_fields)
+        authority_values = [str(course.get(field, "")).strip() for field in authority_fields]
+        authority_complete = all(authority_values) and not any(AUTHORITY_PLACEHOLDER.search(value) for value in authority_values)
         if status == "VERIFIED" and not authority_complete:
             issues.append(qa_record("HIGH", "Course_Brief", "UNSUPPORTED_FORMAL_ALIGNMENT", str(course.get("course_id")), "VERIFIED alignment requires exact title, version, section, source URL, and access date.", stop="Complete the authority record or change to INFORMED_BY."))
-        elif status == "INFORMED_BY" and not authority_complete:
-            issues.append(qa_record("MEDIUM", "Course_Brief", "COURSE_AUTHORITY_PLANNING_REQUIRED", str(course.get("course_id")), "INFORMED_BY course authority is incomplete.", owner=str(course.get("owner") or "Curriculum owner"), stop="Record the missing authority metadata before formal approval."))
+        elif status == "INFORMED_BY":
+            detail = "contains missing or placeholder metadata" if not authority_complete else "has not been formally verified"
+            issues.append(qa_record("MEDIUM", "Course_Brief", "COURSE_AUTHORITY_PLANNING_REQUIRED", str(course.get("course_id")), f"INFORMED_BY course authority {detail}.", owner=str(course.get("owner") or "Curriculum owner"), stop="Verify the exact applicable authority and mark VERIFIED before formal release."))
+        elif status not in {"VERIFIED", "INFORMED_BY"}:
+            issues.append(qa_record("HIGH", "Course_Brief", "INVALID_COURSE_ALIGNMENT_STATUS", str(course.get("course_id")), f"Unknown course alignment status: {status or '(blank)' }.", stop="Use VERIFIED or INFORMED_BY."))
+
+    for course_id, objective_ids in informed_objectives.items():
+        owner = str(courses.get(course_id, {}).get("owner") or "Curriculum owner")
+        refs = ";".join(objective_ids[:5]) + (f";and {len(objective_ids) - 5} more" if len(objective_ids) > 5 else "")
+        issues.append(qa_record("MEDIUM", "Objectives", "OBJECTIVE_ALIGNMENT_NOT_VERIFIED", refs, f"{len(objective_ids)} objective(s) are INFORMED_BY rather than VERIFIED for {course_id}.", owner=owner, stop="Verify the applicable objective anchors before formal release."))
 
     objective_occurrences: dict[tuple[str, str], list[dict]] = defaultdict(list)
     signatures: dict[tuple[str, str], list[str]] = defaultdict(list)
@@ -611,7 +691,7 @@ def validate_tables(
 
     for event in tables.get("Calendar_Events", []):
         if event_policy(event) == "REVIEW" or str(event.get("confidence", "")).upper() == "LOW":
-            issues.append(qa_record("MEDIUM", "Calendar_Events", "CALENDAR_REVIEW_REQUIRED", str(event.get("event_id")), f"Confirm teaching impact for: {event.get('title')}", source_refs=str(event.get("source_locator", ""))))
+            issues.append(qa_record("MEDIUM", "Calendar_Events", "CALENDAR_REVIEW_REQUIRED", str(event.get("event_id")), f"Confirm teaching impact for: {event.get('title')}", source_refs=str(event.get("source_locator", "")), stop="Confirm the event scope and policy or record a manual override."))
 
     issues.extend(detect_timetable_conflicts(tables.get("Timetable_Slots", [])))
 
@@ -796,19 +876,26 @@ def normalize_tabular_calendar(rows: Iterable[dict], label: str, source_hash: st
         "notes": {"notes", "note"},
     }
     normalized_rows = []
+    import_warnings = []
     for index, raw in enumerate(rows, 2):
+        if not any(str(value or "").strip() for value in raw.values()):
+            continue
         lowered = {re.sub(r"[\s-]+", "_", str(key).strip().lower()): value for key, value in raw.items()}
         picked = {}
         for canonical, names in aliases.items():
             match = next((lowered[name] for name in names if name in lowered and str(lowered[name]).strip()), "")
             picked[canonical] = str(match).strip()
         if not picked["title"] or not picked["start"]:
+            import_warnings.append(f"row {index}: missing title or start date; row retained for manual source review")
             continue
         try:
             start = parse_date(picked["start"]).isoformat()
             end = parse_date(picked["end_inclusive"] or start).isoformat()
             confidence, parse_status = "MEDIUM", "REVIEW"
-        except ValueError:
+            if end < start:
+                raise ValueError("end date precedes start date")
+        except (TypeError, ValueError) as error:
+            import_warnings.append(f"row {index}: invalid or non-ISO date ({error}); row retained for manual source review")
             continue
         start_time, end_time = normalize_clock(picked.get("start_time")), normalize_clock(picked.get("end_time"))
         explicit_all_day = str(picked.get("all_day", "")).strip()
@@ -829,4 +916,4 @@ def normalize_tabular_calendar(rows: Iterable[dict], label: str, source_hash: st
         identity = f"{source_hash}|{calendar_event_key(event)}"
         event["event_id"] = f"EVT-{hashlib.sha256(identity.encode()).hexdigest()[:12].upper()}"
         normalized_rows.append(event)
-    return {"events": dedupe_events(normalized_rows)}
+    return {"events": dedupe_events(normalized_rows), "import_warnings": import_warnings}

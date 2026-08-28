@@ -34,6 +34,18 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual((event["event_type"], event["block_policy"]), ("ASSESSMENT", "BLOCK"))
         self.assertEqual((event["scope_type"], event["scope_id"]), ("COURSE", "ENG-8A"))
 
+    def test_tabular_adapter_reports_invalid_or_missing_dates(self):
+        rows = [
+            {"Title": "Valid", "Start Date": "2026-10-02"},
+            {"Title": "Non-ISO", "Start Date": "02/10/2026"},
+            {"Title": "Inverted", "Start Date": "2026-10-03", "End Date": "2026-10-01"},
+            {"Title": "Missing"},
+        ]
+        result = normalize_tabular_calendar(rows, "fixture.csv", "fixture-hash", "CSV")
+        self.assertEqual([event["title"] for event in result["events"]], ["Valid"])
+        self.assertEqual(len(result["import_warnings"]), 3)
+        self.assertTrue(all("row " in warning for warning in result["import_warnings"]))
+
     def test_non_xlsx_calendar_cli_does_not_require_node(self):
         with tempfile.TemporaryDirectory(prefix="minxin-calendar-cli-") as name:
             directory = Path(name)
@@ -45,13 +57,23 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(len(read_json(output)["events"]), 1)
 
     def test_pdf_adapter_is_review_first(self):
-        source = Path("/Users/zaipinai/Downloads/Minxin Calendar 2026-2027.pdf")
+        source_value = os.environ.get("MINXIN_TEST_CALENDAR_PDF")
+        if not source_value:
+            self.skipTest("Set MINXIN_TEST_CALENDAR_PDF to an official calendar PDF")
+        source = Path(source_value)
         if not source.exists():
-            self.skipTest("Official PDF fixture unavailable")
+            self.skipTest("MINXIN_TEST_CALENDAR_PDF does not exist")
         result = calendar_from_pdf(source)
         self.assertGreater(len(result["events"]), 20)
         self.assertTrue(all(event["block_policy"] == "REVIEW" for event in result["events"]))
-        self.assertTrue(result["import_warnings"])
+        self.assertIn("import_warnings", result)
+        self.assertFalse(any("Teaching Days" in warning for warning in result["import_warnings"]))
+        self.assertTrue(all(event["start"] <= event["end_inclusive"] for event in result["events"]))
+        events = {event["title"]: event for event in result["events"]}
+        self.assertEqual(events["G12 (HKDSE) Pre-mock Assessment"]["start"], "2026-08-20")
+        self.assertTrue(any("G12(GCE), G11 (IB) First Semester Assessment" in title for title in events))
+        self.assertIn("HKDSE Examination (English Language - Speaking)", events)
+        self.assertIn("IGCSE and GCE Examination", events)
 
     def test_url_adapter_keeps_address_out_of_normalized_events(self):
         with tempfile.TemporaryDirectory(prefix="minxin-url-") as name:

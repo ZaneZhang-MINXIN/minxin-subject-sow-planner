@@ -86,6 +86,13 @@ def render_findings(render_dir: Path) -> list[str]:
     return errors
 
 
+def release_blocking_issues(issues: list[dict]) -> list[dict]:
+    return [
+        issue for issue in issues
+        if issue.get("status") == "OPEN" and str(issue.get("stop_condition", "")).strip()
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--planner-json", type=Path, required=True)
@@ -112,6 +119,7 @@ def main() -> int:
     issues = list({issue["qa_id"]: issue for issue in [*current_issues, *stale_issues]}.values())
     high = [issue for issue in issues if issue["severity"] == "HIGH"]
     errors.extend(f"{issue['code']}: {issue['message']} [{issue['record_refs']}]" for issue in high)
+    release_blockers = release_blocking_issues(issues)
     word_errors = []
     if args.word_dir:
         for course in refreshed["tables"]["Course_Brief"]:
@@ -123,6 +131,10 @@ def main() -> int:
             word_errors.extend(validate_docx(path, course, rows, refreshed["source_hash"], args.profile, language))
     errors.extend(word_errors)
     if args.release:
+        errors.extend(
+            f"OPEN_RELEASE_QA {issue['code']}: {issue['message']} [{issue['record_refs']}]"
+            for issue in release_blockers if issue["severity"] != "HIGH"
+        )
         if not args.word_dir or not args.render_dir:
             errors.append("Release validation requires --word-dir and --render-dir")
         else:
@@ -137,6 +149,8 @@ def main() -> int:
             "HIGH": sum(1 for issue in issues if issue["severity"] == "HIGH"),
             "MEDIUM": sum(1 for issue in issues if issue["severity"] == "MEDIUM"),
         },
+        "open_release_qa_count": len(release_blockers),
+        "open_release_qa_codes": sorted({issue["code"] for issue in release_blockers}),
         "word_files_checked": len(list(args.word_dir.glob("*.docx"))) if args.word_dir and args.word_dir.exists() else 0,
     }
     if args.report:

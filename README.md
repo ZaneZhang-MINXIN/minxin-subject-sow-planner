@@ -62,5 +62,4 @@ skills/minxin-subject-sow-planner/
 
 ## Validation
 
-发布候选已通过 25/25 自动测试、Skill Creator validation、Excel/Word 同步检查、全页渲染检查和隐私扫描。
-
+核心功能候选已通过 30/30 自动测试、Skill Creator validation、Excel/Word 同步检查、全页渲染检查和隐私扫描。正式课程的 `validate --release` 还会阻止任何带 `stop_condition` 的开放 QA 项；校历影响、课程 authority 或 objective alignment 未由负责人确认时，不会返回 `release_ready=true`。

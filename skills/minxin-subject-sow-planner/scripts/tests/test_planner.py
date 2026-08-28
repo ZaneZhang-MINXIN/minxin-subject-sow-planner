@@ -16,6 +16,7 @@ from planner_core import (  # noqa: E402
     build_planner_data, compute_available_periods, detect_timetable_conflicts,
     event_applies, generate_weeks, parse_ics_bytes, read_json, validate_tables,
 )
+from validate import release_blocking_issues  # noqa: E402
 
 
 class PlannerTests(unittest.TestCase):
@@ -57,6 +58,25 @@ class PlannerTests(unittest.TestCase):
         self.assertFalse(event_applies({"scope_type": "COURSE", "scope_id": "G8-ENG-8E-PSP"}, course))
         self.assertFalse(event_applies({"scope_type": "GRADE", "scope_id": "Secondary 3"}, course))
         self.assertTrue(event_applies({"scope_type": "GRADE", "scope_id": "Secondary 2"}, course))
+
+    def test_course_list_matches_grade_programme_composite(self):
+        course = {
+            "course_id": "MATHEMATICS-G10-CORE-A", "grade_level": "Grade 10",
+            "curriculum_framework": "Cambridge IGCSE", "class_id": "G10A",
+        }
+        self.assertTrue(event_applies({"scope_type": "COURSE_LIST", "scope_id": "G10-IGCSE;G11-GCE"}, course))
+        self.assertTrue(event_applies({"scope_type": "COURSE_LIST", "scope_id": "IGCSE;GCE"}, course))
+        self.assertFalse(event_applies({"scope_type": "COURSE_LIST", "scope_id": "G11-IGCSE;G10-GCE"}, course))
+
+    def test_capacity_requires_matching_class_id(self):
+        settings = {"year_id": "X", "academic_start": "2026-09-07", "academic_end": "2026-09-11", "term_2_start": "2027-02-15", "school_weekdays": "1,2,3,4,5"}
+        week = generate_weeks(settings, [])[0]
+        course = {"course_id": "M", "class_id": "G8A", "grade_level": "G8"}
+        slots = [
+            {"slot_id": "A", "course_id": "M", "class_id": "G8A", "weekday": 1, "period_no": 1, "valid_from": "2026-09-01", "valid_to": "2026-09-30", "cycle_pattern": "ALL", "active": True},
+            {"slot_id": "B", "course_id": "M", "class_id": "G8B", "weekday": 2, "period_no": 1, "valid_from": "2026-09-01", "valid_to": "2026-09-30", "cycle_pattern": "ALL", "active": True},
+        ]
+        self.assertEqual(compute_available_periods(course, week, slots, []), 1)
 
     def test_timed_block_does_not_reduce_working_days(self):
         settings = {"year_id": "X", "academic_start": "2026-09-07", "academic_end": "2026-09-11", "term_2_start": "2027-02-15", "school_weekdays": "1,2,3,4,5"}
@@ -147,6 +167,30 @@ class PlannerTests(unittest.TestCase):
         issues = validate_tables(tables)
         codes = {issue["code"] for issue in issues}
         self.assertTrue({"INCOMPLETE_CURRICULUM_CHAIN", "INVALID_REPETITION_PURPOSE", "INVALID_MAJOR_CONCERN_REF", "UNSUPPORTED_OBJECTIVE_ALIGNMENT", "UNSCHEDULED_OBJECTIVE"} <= codes)
+
+    def test_authority_placeholders_and_before_assessment_are_release_gates(self):
+        payload = build_planner_data(self.fixture, self.calendar)
+        tables = payload["tables"]
+        course = tables["Course_Brief"][0]
+        course["alignment_status"] = "VERIFIED"
+        course["authority_section"] = "Exact chapter requires teacher confirmation"
+        unit = next(row for row in tables["Units"] if row["course_id"] == course["course_id"] and row["schedule_policy"] == "BEFORE_ASSESSMENT")
+        for plan in tables["Weekly_Plan"]:
+            if plan["unit_id"] == unit["unit_id"]:
+                plan["week_id"] = "AY2026-27-W19"
+        issues = validate_tables(tables)
+        codes = {issue["code"] for issue in issues}
+        self.assertIn("UNSUPPORTED_FORMAL_ALIGNMENT", codes)
+        self.assertIn("BEFORE_ASSESSMENT_TIMING", codes)
+        self.assertTrue(release_blocking_issues(issues))
+
+    def test_open_calendar_and_informed_by_qa_block_formal_release(self):
+        payload = build_planner_data(self.fixture, self.calendar)
+        blockers = release_blocking_issues(payload["tables"]["QA"])
+        codes = {issue["code"] for issue in blockers}
+        self.assertIn("CALENDAR_REVIEW_REQUIRED", codes)
+        self.assertIn("COURSE_AUTHORITY_PLANNING_REQUIRED", codes)
+        self.assertIn("OBJECTIVE_ALIGNMENT_NOT_VERIFIED", codes)
 
     def test_full_generated_view_comparison_detects_calendar_context_tamper(self):
         payload = build_planner_data(self.fixture, self.calendar)
