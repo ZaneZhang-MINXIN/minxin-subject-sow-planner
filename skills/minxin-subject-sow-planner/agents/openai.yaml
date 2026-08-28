@@ -1,0 +1,4 @@
+interface:
+  display_name: "MINXIN Subject SOW Planner"
+  short_description: "Design calendar-aware Hong Kong subject SOWs"
+  default_prompt: "Use $minxin-subject-sow-planner to design a subject-appropriate, EDB-informed Scheme of Work from the school calendar, curriculum evidence and timetable."

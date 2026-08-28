@@ -1,0 +1,3 @@
+Title,Start Date,End Date,Start Time,End Time,Type,Policy,Scope,Scope ID
+Fixture Holiday,2026-10-01,2026-10-02,,,HOLIDAY,BLOCK,SCHOOL,ALL
+Fixture Timed Assessment,2026-10-09,2026-10-09,10:00,10:45,ASSESSMENT,BLOCK,COURSE,ENGLISH-G7-CORE-A
