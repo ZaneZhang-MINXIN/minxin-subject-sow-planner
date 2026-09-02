@@ -31,6 +31,57 @@ ZH_HEADERS = [
 ]
 STANDARD_WIDTHS = [0.72, 0.42, 0.72, 0.75, 0.68, 1.20, 0.40, 0.65, 0.62, 1.65, 1.88]
 COMPACT_WIDTHS = [0.76, 0.44, 0.78, 0.82, 1.35, 0.42, 0.72, 0.68, 1.75, 1.97]
+MAJOR_CONCERNS = [
+    (
+        "M1",
+        "To enhance global engagement and innovation by deepening partnerships and integrating "
+        "future-ready, AI-driven teaching practices, thereby building a smart campus and nurturing "
+        "AI-literate students.",
+    ),
+    (
+        "M2",
+        "To promote high quality teaching and academic excellence through research-informed practice, "
+        "interdisciplinary collaboration, and continuous pedagogical innovation.",
+    ),
+    (
+        "M3",
+        "To foster students’ holistic development and global outlook by deepening Values Education, "
+        "developing ATL skills and expanding meaningful leadership opportunities.",
+    ),
+]
+
+
+def soft_wrap_text(value: object) -> str:
+    """Remove manual line breaks and add invisible wrap opportunities after slashes."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return re.sub(r"/(?!\u200b)", "/\u200b", text)
+
+
+def set_paragraph_soft_wrap(paragraph) -> None:
+    p_pr = paragraph._p.get_or_add_pPr()
+    for tag, value in (("w:wordWrap", "1"), ("w:suppressAutoHyphens", "1")):
+        for existing in p_pr.findall(qn(tag)):
+            p_pr.remove(existing)
+        element = OxmlElement(tag)
+        element.set(qn("w:val"), value)
+        p_pr.append(element)
+
+
+def set_cell_soft_wrap(cell) -> None:
+    tc_pr = cell._tc.get_or_add_tcPr()
+    for existing in tc_pr.findall(qn("w:noWrap")):
+        tc_pr.remove(existing)
+    for paragraph in cell.paragraphs:
+        set_paragraph_soft_wrap(paragraph)
+
+
+def disable_document_hyphenation(document: Document) -> None:
+    settings = document.settings.element
+    for existing in settings.findall(qn("w:autoHyphenation")):
+        settings.remove(existing)
+    auto_hyphenation = OxmlElement("w:autoHyphenation")
+    auto_hyphenation.set(qn("w:val"), "0")
+    settings.append(auto_hyphenation)
 
 
 def scrub_revision_session_ids(path: Path) -> None:
@@ -121,6 +172,7 @@ def set_font(run, size: float, bold: bool = False, colour: str = "000000") -> No
 
 def add_page_number(paragraph) -> None:
     paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    set_paragraph_soft_wrap(paragraph)
     run = paragraph.add_run()
     set_font(run, 9)
     begin = OxmlElement("w:fldChar")
@@ -147,6 +199,7 @@ def configure_document(document: Document, title: str, course_id: str, source_ha
     styles["Normal"].font.name = "Times New Roman"
     styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft JhengHei")
     styles["Normal"].font.size = Pt(8)
+    disable_document_hyphenation(document)
     props = document.core_properties
     props.title = title
     props.subject = "Scheme of Work"
@@ -166,21 +219,24 @@ def add_title(document: Document, title: str, subtitle: str, logo: Path | None) 
     table.columns[1].width = Inches(8.6)
     remove_table_borders(table)
     left, right = table.rows[0].cells
+    left_paragraph = left.paragraphs[0]
+    left_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    set_paragraph_soft_wrap(left_paragraph)
     if logo and logo.exists():
-        paragraph = left.paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        paragraph.add_run().add_picture(str(logo), width=Inches(0.72))
+        left_paragraph.add_run().add_picture(str(logo), width=Inches(0.72))
     paragraph = right.paragraphs[0]
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = paragraph.add_run(title)
+    run = paragraph.add_run(soft_wrap_text(title))
     set_font(run, 16, True)
+    set_paragraph_soft_wrap(paragraph)
     paragraph.paragraph_format.space_after = Pt(1)
     second = document.add_paragraph()
     second.alignment = WD_ALIGN_PARAGRAPH.CENTER
     second.paragraph_format.space_before = Pt(0)
     second.paragraph_format.space_after = Pt(5)
-    run = second.add_run(subtitle)
+    run = second.add_run(soft_wrap_text(subtitle))
     set_font(run, 10.5, True)
+    set_paragraph_soft_wrap(second)
 
 
 def assessment_text(row: dict) -> str:
@@ -191,7 +247,37 @@ def assessment_text(row: dict) -> str:
         parts.append(str(row["assessment_purpose"]))
     if row.get("feedback_revision"):
         parts.append(f"Feedback/revision: {row['feedback_revision']}")
-    return "\n".join(parts)
+    return " ".join(parts)
+
+
+def add_major_concerns_remarks(document: Document) -> None:
+    heading = document.add_paragraph()
+    heading.paragraph_format.space_before = Pt(6)
+    heading.paragraph_format.space_after = Pt(2)
+    heading.paragraph_format.keep_with_next = True
+    run = heading.add_run("Remarks: Major Concerns (2025–2028)")
+    set_font(run, 9, True)
+    set_paragraph_soft_wrap(heading)
+    for code, statement in MAJOR_CONCERNS:
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(1)
+        paragraph.paragraph_format.keep_with_next = True
+        paragraph.paragraph_format.keep_together = True
+        run = paragraph.add_run(soft_wrap_text(f"{code}: {statement}"))
+        set_font(run, 7.5)
+        set_paragraph_soft_wrap(paragraph)
+    note = document.add_paragraph()
+    note.paragraph_format.space_before = Pt(1)
+    note.paragraph_format.space_after = Pt(0)
+    note.paragraph_format.keep_together = True
+    run = note.add_run(
+        "Planning note: Cite M1–M3 in Learning Objectives only where a direct, evidence-based "
+        "alignment exists; they are not weekly labels."
+    )
+    set_font(run, 7.5)
+    run.font.italic = True
+    set_paragraph_soft_wrap(note)
 
 
 def row_values(row: dict, compact: bool) -> list[str]:
@@ -234,6 +320,7 @@ def create_sow(planner: dict, course: dict, rows: list[dict], output: Path, prof
         paragraph.paragraph_format.space_after = Pt(0)
         run = paragraph.add_run(header)
         set_font(run, 7.6, True, "0000FF")
+        set_cell_soft_wrap(cell)
     table.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
     set_repeat_header(table.rows[0])
     for source in rows:
@@ -242,15 +329,16 @@ def create_sow(planner: dict, course: dict, rows: list[dict], output: Path, prof
         if source.get("row_type") == "CALENDAR_BLOCK":
             values = row_values(source, compact)
             for index in (0, 1):
-                cells[index].text = values[index]
+                cells[index].text = soft_wrap_text(values[index])
             merged = cells[2]
             for cell in cells[3:]:
                 merged = merged.merge(cell)
-            merged.text = source.get("module_unit", "Calendar event")
+            merged.text = soft_wrap_text(source.get("module_unit", "Calendar event"))
             for cell in table.rows[-1].cells:
                 set_cell_shading(cell, "E7E6E6")
                 set_cell_margins(cell, 70, 60, 70, 60)
                 cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+                set_cell_soft_wrap(cell)
                 for paragraph in cell.paragraphs:
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     paragraph.paragraph_format.space_after = Pt(0)
@@ -262,7 +350,8 @@ def create_sow(planner: dict, course: dict, rows: list[dict], output: Path, prof
             cell.width = Inches(widths[index])
             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.TOP
             set_cell_margins(cell)
-            cell.text = text
+            cell.text = soft_wrap_text(text)
+            set_cell_soft_wrap(cell)
             for paragraph in cell.paragraphs:
                 paragraph.paragraph_format.space_before = Pt(0)
                 paragraph.paragraph_format.space_after = Pt(0)
@@ -271,6 +360,7 @@ def create_sow(planner: dict, course: dict, rows: list[dict], output: Path, prof
                     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 for run in paragraph.runs:
                     set_font(run, 7.2)
+    add_major_concerns_remarks(document)
     output.parent.mkdir(parents=True, exist_ok=True)
     document.save(output)
     scrub_revision_session_ids(output)

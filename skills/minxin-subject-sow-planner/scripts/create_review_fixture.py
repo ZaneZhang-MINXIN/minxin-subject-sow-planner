@@ -376,7 +376,7 @@ def make_plans(calendar: dict, slots: list[dict]):
                 resources = "Rights-cleared image set, source/licence/attribution log, access dates, school-approved editor and authorship checklist"
             else:
                 resources = "Artist references, process journal and media appropriate to the weekly study"
-            plans.append({
+            plan = {
                 "plan_id": f"PLAN-{course_id}-W{number:02d}", "course_id": course_id, "week_id": week["week_id"],
                 "unit_id": f"{course_id}-{suffix}", "learning_unit": learning_focus, "prior_learning": prior_focus if capacity else "",
                 "objective_refs": refs, "knowledge_content": knowledge, "disciplinary_practice": practice, "activities": activities,
@@ -388,7 +388,15 @@ def make_plans(calendar: dict, slots: list[dict]):
                 "context_delta": f"New context: {focus}." if repeated else "", "evidence_delta": f"New evidence product for {focus}." if repeated else "",
                 "independence_delta": "Learner makes and justifies more decisions independently." if repeated else "",
                 "owner": "TEST_FIXTURE owner", "status": "TEST_FIXTURE",
-            })
+            }
+            selective_concerns = {
+                ("ENGLISH-G7-CORE-A", 8): "MC2",
+                ("MATHEMATICS-G8-CORE-B", 21): "MC2;MC3",
+                ("VISUAL-ARTS-G9-CORE-C", 29): "MC1;MC2",
+            }.get((course_id, number), "")
+            if refs and selective_concerns:
+                plan["major_concern_refs"] = selective_concerns
+            plans.append(plan)
             if capacity:
                 prior_focus = focus
     return plans
@@ -399,14 +407,14 @@ def main() -> None:
     units, objectives = make_units_and_objectives()
     slots = timetable_slots()
     fixture = {
-        "schema_version": "2.0", "fixture_status": "TEST_FIXTURE",
+        "schema_version": "2.1", "fixture_status": "TEST_FIXTURE",
         "setup": {"academic_year": "2026-2027", "default_language": "en-GB", "default_profile": "standard"},
         "tables": {"Course_Brief": COURSES, "Timetable_Slots": slots, "Units": units, "Objectives": objectives, "Weekly_Plan": make_plans(calendar, slots)},
     }
     fixture_path = SCRIPT_DIR / "tests" / "fixtures" / "multi-subject-fixture.json"
     fixture_path.parent.mkdir(parents=True, exist_ok=True)
     fixture_path.write_text(json.dumps(fixture, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    blank = {"schema_version": "2.0", "setup": {"academic_year": "2026-2027", "default_language": "en-GB", "default_profile": "standard"}, "tables": {"Course_Brief": [], "Timetable_Slots": [], "Units": [], "Objectives": [], "Weekly_Plan": []}}
+    blank = {"schema_version": "2.1", "setup": {"academic_year": "2026-2027", "default_language": "en-GB", "default_profile": "standard"}, "tables": {"Course_Brief": [], "Timetable_Slots": [], "Units": [], "Objectives": [], "Weekly_Plan": []}}
     blank_path = SKILL_DIR / "assets" / "blank-curriculum.json"
     blank_path.write_text(json.dumps(blank, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(fixture_path)

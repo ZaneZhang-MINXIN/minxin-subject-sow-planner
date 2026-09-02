@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "fixture_status": "TEST_FIXTURE",
   "setup": {
     "academic_year": "2026-2027",
@@ -1305,7 +1305,8 @@
         "evidence_delta": "New evidence product for Reading Festival text comparison.",
         "independence_delta": "Learner makes and justifies more decisions independently.",
         "owner": "TEST_FIXTURE owner",
-        "status": "TEST_FIXTURE"
+        "status": "TEST_FIXTURE",
+        "major_concern_refs": "MC2"
       },
       {
         "plan_id": "PLAN-ENGLISH-G7-CORE-A-W09",
@@ -2787,7 +2788,8 @@
         "evidence_delta": "",
         "independence_delta": "",
         "owner": "TEST_FIXTURE owner",
-        "status": "TEST_FIXTURE"
+        "status": "TEST_FIXTURE",
+        "major_concern_refs": "MC2;MC3"
       },
       {
         "plan_id": "PLAN-MATHEMATICS-G8-CORE-B-W22",
@@ -4139,7 +4141,8 @@
         "evidence_delta": "New evidence product for AI & STEAM Week: testing digital ideation with source verification.",
         "independence_delta": "Learner makes and justifies more decisions independently.",
         "owner": "TEST_FIXTURE owner",
-        "status": "TEST_FIXTURE"
+        "status": "TEST_FIXTURE",
+        "major_concern_refs": "MC1;MC2"
       },
       {
         "plan_id": "PLAN-VISUAL-ARTS-G9-CORE-C-W30",

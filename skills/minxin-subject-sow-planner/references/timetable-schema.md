@@ -10,7 +10,7 @@ The workbook contains exactly ten sheets.
 - `Timetable_Slots`: `slot_id, course_id, class_id, teacher_id, room_id, weekday, period_no, start_time, end_time, valid_from, valid_to, cycle_pattern, active`.
 - `Units`: `unit_id, course_id, sequence_no, title, unit_type, essential_question, disciplinary_practice, expected_evidence, target_periods, schedule_policy, major_concern_refs, major_concern_evidence, source_ref, status`.
 - `Objectives`: `objective_id, course_id, objective_text, knowledge_type, progression_level, prerequisite_refs, success_evidence, standard_anchor, source_ref, alignment_status, status`.
-- `Weekly_Plan`: `plan_id, course_id, week_id, unit_id, learning_unit, prior_learning, objective_refs, knowledge_content, disciplinary_practice, activities, evidence, assessment_purpose, feedback_revision, resources, values, planned_periods, available_periods, repetition_purpose, progression_delta, context_delta, evidence_delta, independence_delta, owner, status`.
+- `Weekly_Plan`: `plan_id, course_id, week_id, unit_id, learning_unit, prior_learning, objective_refs, major_concern_refs, knowledge_content, disciplinary_practice, activities, evidence, assessment_purpose, feedback_revision, resources, values, planned_periods, available_periods, repetition_purpose, progression_delta, context_delta, evidence_delta, independence_delta, owner, status`.
 
 `available_periods` is generated when a timetable exists; a teacher should not invent it.
 
@@ -27,3 +27,4 @@ Stable IDs are `year_id, course_id, event_id, slot_id, week_id, unit_id, objecti
 - Prerequisites must exist in the same course and appear earlier in the progression.
 - Timetable conflicts require overlapping weekday/period, validity dates, and A/B cycle.
 - Generated rows store source lineage; a changed source makes downstream outputs stale until rebuilt.
+- `Units.major_concern_refs` is the broad planning map. `Weekly_Plan.major_concern_refs` is the only source for visible `(M1–M3)` objective citations and must be blank unless the linked objective directly fits. The generated `SOW_View` retains this field for Word lineage.

@@ -8,6 +8,8 @@
 - Times New Roman English body with suitable CJK fallback for Traditional Chinese; automatic right-aligned page number.
 - Avoid fixed body-row heights; prevent row splitting where practical.
 - Merge content columns for holiday/assessment labels; remove blank trailing pages and isolated headers.
+- Use Word automatic wrapping at spaces. Remove manual line breaks from cell text, disable automatic hyphenation, prohibit exact row heights and `noWrap`, and do not insert visible hyphens to force a word break. Add U+200B only after slashes when a slash-delimited expression needs another wrap opportunity.
+- After the main SOW table, add the complete `Remarks: Major Concerns (2025–2028)` as ordinary paragraphs outside the table. Keep weekly citations selective and append only directly relevant `(M1)`, `(M2)`, or `(M3)` markers to Learning Objectives.
 
 Default 11 columns:
 
@@ -19,4 +21,4 @@ The compact profile hides `Prior Learning`.
 
 Use a dark-blue title bar, pale-blue editable guidance, grey generated guidance, and yellow/blue table headers. Freeze headings and enable filters. Label generated sheets “do not edit”.
 
-Use detailed, assessable objectives and concise weekly prose. Name subject knowledge and disciplinary practice before activity. Keep resources realistic but not unnecessarily brand-specific. Do not repeat identical activity/assessment strings without a progression purpose.
+Use detailed, assessable objectives and concise weekly prose. Join multiple objectives with normal spaces rather than hard returns. Name subject knowledge and disciplinary practice before activity. Keep resources realistic but not unnecessarily brand-specific. Do not repeat identical activity/assessment strings without a progression purpose.

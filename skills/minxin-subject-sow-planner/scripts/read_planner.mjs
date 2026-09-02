@@ -54,7 +54,7 @@ for (const name of SHEETS) {
   tables[name] = data.records;
 }
 const sourceHashRow = tables.Setup.find((row) => row.key === "source_hash");
-const payload = { schema_version: "2.0", headers, tables, source_hash: sourceHashRow?.value || "", extracted_from: path.basename(input.input) };
+const payload = { schema_version: "2.1", headers, tables, source_hash: sourceHashRow?.value || "", extracted_from: path.basename(input.input) };
 await fs.mkdir(path.dirname(input.out), { recursive: true });
 await fs.writeFile(input.out, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 const errors = await workbook.inspect({ kind: "match", searchTerm: "#REF!|#DIV/0!|#VALUE!|#NAME\\?|#N/A", options: { useRegex: true, maxResults: 300 }, summary: "formula error scan", maxChars: 8000 });

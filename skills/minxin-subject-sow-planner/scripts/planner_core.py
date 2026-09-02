@@ -22,6 +22,7 @@ EDITABLE_SHEETS = [
 ]
 GENERATED_SHEETS = ["Weeks", "SOW_View", "QA"]
 ALL_SHEETS = EDITABLE_SHEETS + GENERATED_SHEETS
+SCHEMA_VERSION = "2.1"
 HONG_KONG_TZ = ZoneInfo("Asia/Hong_Kong")
 REPETITION_PURPOSES = {"RETRIEVAL", "CONSOLIDATION", "SPIRAL", "TRANSFER", "ROUTINE"}
 MAJOR_CONCERNS = {"MC1", "MC2", "MC3"}
@@ -64,10 +65,10 @@ HEADERS = {
     ],
     "Weekly_Plan": [
         "plan_id", "course_id", "week_id", "unit_id", "learning_unit", "prior_learning",
-        "objective_refs", "knowledge_content", "disciplinary_practice", "activities", "evidence",
-        "assessment_purpose", "feedback_revision", "resources", "values", "planned_periods",
-        "available_periods", "repetition_purpose", "progression_delta", "context_delta",
-        "evidence_delta", "independence_delta", "owner", "status",
+        "objective_refs", "major_concern_refs", "knowledge_content", "disciplinary_practice",
+        "activities", "evidence", "assessment_purpose", "feedback_revision", "resources", "values",
+        "planned_periods", "available_periods", "repetition_purpose", "progression_delta",
+        "context_delta", "evidence_delta", "independence_delta", "owner", "status",
     ],
     "Weeks": [
         "week_id", "year_id", "term", "week_no", "date_start", "date_end", "teaching_status",
@@ -76,9 +77,9 @@ HEADERS = {
     "SOW_View": [
         "source_hash", "course_id", "plan_id", "week_id", "date_range", "week_label", "row_type",
         "unit_id", "module_unit", "learning_focus", "prior_learning", "objective_refs",
-        "teaching_objectives", "knowledge_content", "disciplinary_practice", "periods", "resources",
-        "values", "activities", "evidence", "assessment_purpose", "feedback_revision",
-        "calendar_context", "status",
+        "major_concern_refs", "teaching_objectives", "knowledge_content", "disciplinary_practice",
+        "periods", "resources", "values", "activities", "evidence", "assessment_purpose",
+        "feedback_revision", "calendar_context", "status",
     ],
     "QA": [
         "qa_id", "severity", "scope", "code", "record_refs", "message", "owner", "status",
@@ -377,6 +378,10 @@ def make_view(tables: dict, source_hash: str) -> list[dict]:
         blocked = [event for event in related if event_policy(event) == "BLOCK"]
         calendar_labels = list(dict.fromkeys(event["title"] for event in related))
         objective_texts = [objectives[ref]["objective_text"] for ref in split_refs(plan.get("objective_refs")) if ref in objectives]
+        concern_refs = [ref.upper() for ref in split_refs(plan.get("major_concern_refs")) if ref.upper() in MAJOR_CONCERNS]
+        if objective_texts and concern_refs:
+            visible_refs = [ref.replace("MC", "M", 1) for ref in concern_refs]
+            objective_texts[0] = f"{objective_texts[0]} ({', '.join(visible_refs)})"
         capacity = compute_available_periods(course, week, tables["Timetable_Slots"], events) if synthetic else plan.get("available_periods")
         fully_blocked = synthetic or (bool(blocked) and (capacity == 0 or str(capacity) == "0"))
         if capacity == "UNCOMPUTED" and week.get("teaching_status") == "BLOCKED":
@@ -396,7 +401,8 @@ def make_view(tables: dict, source_hash: str) -> list[dict]:
             "learning_focus": label if fully_blocked else plan.get("learning_unit", ""),
             "prior_learning": "" if fully_blocked else plan.get("prior_learning", ""),
             "objective_refs": "" if fully_blocked else plan.get("objective_refs", ""),
-            "teaching_objectives": "No scheduled instruction" if fully_blocked else "\n".join(objective_texts),
+            "major_concern_refs": "" if fully_blocked else ";".join(concern_refs),
+            "teaching_objectives": "No scheduled instruction" if fully_blocked else " ".join(objective_texts),
             "knowledge_content": "" if fully_blocked else plan.get("knowledge_content", ""),
             "disciplinary_practice": "" if fully_blocked else plan.get("disciplinary_practice", ""),
             "periods": 0 if fully_blocked else plan.get("planned_periods", ""),
@@ -559,6 +565,19 @@ def validate_tables(
         purpose = str(plan.get("repetition_purpose", "")).strip().upper()
         if purpose and purpose not in REPETITION_PURPOSES:
             issues.append(qa_record("HIGH", "Weekly_Plan", "INVALID_REPETITION_PURPOSE", plan_id, f"Unknown repetition purpose: {purpose}.", stop="Use the documented repetition-purpose list."))
+
+        concern_refs = [ref.upper() for ref in split_refs(plan.get("major_concern_refs"))]
+        invalid_refs = [ref for ref in concern_refs if ref not in MAJOR_CONCERNS]
+        if invalid_refs:
+            issues.append(qa_record("HIGH", "Weekly_Plan", "INVALID_WEEKLY_MAJOR_CONCERN_REF", plan_id, f"Unknown Major Concern references: {', '.join(invalid_refs)}.", stop="Use only MC1, MC2 and MC3, or leave the field blank."))
+        if concern_refs and not split_refs(plan.get("objective_refs")):
+            issues.append(qa_record("HIGH", "Weekly_Plan", "MAJOR_CONCERN_WITHOUT_OBJECTIVE", plan_id, "A weekly Major Concern citation has no linked objective.", stop="Link the directly aligned objective or remove the citation."))
+        if len(concern_refs) > 2:
+            issues.append(qa_record("MEDIUM", "Weekly_Plan", "WEEKLY_MAJOR_CONCERN_OVERMAPPING", plan_id, "A weekly objective normally cites no more than one or two directly aligned Major Concerns."))
+        unit_refs = {ref.upper() for ref in split_refs((unit or {}).get("major_concern_refs"))}
+        outside_unit = [ref for ref in concern_refs if ref in MAJOR_CONCERNS and ref not in unit_refs]
+        if outside_unit:
+            issues.append(qa_record("MEDIUM", "Weekly_Plan", "WEEKLY_MAJOR_CONCERN_NOT_IN_UNIT", plan_id, f"Weekly citation {', '.join(outside_unit)} is not included in the unit-level planning map; confirm the alignment or update the unit."))
 
     informed_objectives: dict[str, list[str]] = defaultdict(list)
     for objective in tables.get("Objectives", []):
@@ -744,7 +763,7 @@ def build_planner_data(curriculum: dict, calendar: dict, settings_override: dict
     tables["Setup"] = setup_rows(settings)
     tables["SOW_View"] = make_view(tables, source_hash)
     tables["QA"] = validate_tables(tables)
-    return {"schema_version": "2.0", "headers": HEADERS, "tables": tables, "source_hash": source_hash}
+    return {"schema_version": SCHEMA_VERSION, "headers": HEADERS, "tables": tables, "source_hash": source_hash}
 
 
 def refresh_planner_payload(payload: dict) -> dict:
@@ -762,7 +781,7 @@ def refresh_planner_payload(payload: dict) -> dict:
     tables["Setup"] = setup_rows(settings)
     tables["SOW_View"] = make_view(tables, source_hash)
     tables["QA"] = validate_tables(tables)
-    return {"schema_version": "2.0", "headers": HEADERS, "tables": tables, "source_hash": source_hash}
+    return {"schema_version": SCHEMA_VERSION, "headers": HEADERS, "tables": tables, "source_hash": source_hash}
 
 
 def parse_ics_datetime(raw: str, property_key: str) -> tuple[datetime, str]:

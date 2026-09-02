@@ -11,8 +11,9 @@ A Hong Kong EDB-informed, calendar-aware Scheme of Work planner for one subject 
 - 先通过 `grill-me` 锁定课程边界，再进行有边界的 brainstorming。
 - 依据香港 EDB 的 KLA、Key Stage、课程与评估理念进行课程路由；未核实的正式对齐只标记为 `informed by`。
 - 按学科选择合适活动，不强行加入 AI、项目、小组展示或商业分析。
-- 将 Major Concerns 映射到单元行动和可观察证据，而不是逐周重复口号。
+- 将 Major Concerns 先映射到单元行动和证据，再只为直接相关的周目标标注 M1–M3；完整文字统一放在主表后的 Remarks，不逐周重复口号。
 - 从十张表的主控工作簿生成同步 Word SoW；缺少 timetable 时显示 `UNCOMPUTED`，不猜测课时。
+- Word 单元格使用按词自动换行，禁用自动断字和人工硬换行，便于教师后续编辑。
 - 自动检查主键、引用、容量、先修顺序、重复、生成视图同步、Word 结构和隐私。
 
 ## 在 Codex / Agent 应用中安装
@@ -62,4 +63,4 @@ skills/minxin-subject-sow-planner/
 
 ## Validation
 
-核心功能候选已通过 30/30 自动测试、Skill Creator validation、Excel/Word 同步检查、全页渲染检查和隐私扫描。正式课程的 `validate --release` 还会阻止任何带 `stop_condition` 的开放 QA 项；校历影响、课程 authority 或 objective alignment 未由负责人确认时，不会返回 `release_ready=true`。
+当前 v2.1 候选已通过 31/31 自动测试、Skill Creator validation、Excel/Word 同步检查、模板全页渲染检查和隐私扫描。正式课程的 `validate --release` 还会阻止任何带 `stop_condition` 的开放 QA 项；校历影响、课程 authority 或 objective alignment 未由负责人确认时，不会返回 `release_ready=true`。

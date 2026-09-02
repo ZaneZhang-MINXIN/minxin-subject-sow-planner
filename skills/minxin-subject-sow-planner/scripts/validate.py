@@ -7,12 +7,14 @@ import argparse
 import json
 import re
 from pathlib import Path
+from zipfile import ZipFile
 
 from docx import Document
 from docx.enum.section import WD_ORIENT
+from docx.oxml.ns import qn
 from PIL import Image, ImageStat
 
-from export_sow import COMPACT_WIDTHS, EN_HEADERS, STANDARD_WIDTHS, ZH_HEADERS, assessment_text, row_values
+from export_sow import MAJOR_CONCERNS, COMPACT_WIDTHS, EN_HEADERS, STANDARD_WIDTHS, ZH_HEADERS, assessment_text, row_values
 from planner_core import ALL_SHEETS, HEADERS, normalize_text, read_json, refresh_planner_payload, validate_tables, write_json
 
 
@@ -25,16 +27,69 @@ def compare_headers(payload: dict) -> list[str]:
     for name in ALL_SHEETS:
         actual = payload.get("headers", {}).get(name, [])
         if actual and actual != HEADERS[name]:
-            errors.append(f"{name}: columns differ from the v2 schema")
+            errors.append(f"{name}: columns differ from the v2.1 schema")
     return errors
 
 
 def normalize(value) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+    return re.sub(r"\s+", " ", str(value or "").replace("\u200b", "")).strip()
 
 
 def find_sow_table(document: Document, expected_columns: int):
     return next((table for table in document.tables if len(table.columns) == expected_columns), None)
+
+
+def document_paragraphs(document: Document):
+    yield from document.paragraphs
+    seen_cells = set()
+    for table in document.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                identity = id(cell._tc)
+                if identity in seen_cells:
+                    continue
+                seen_cells.add(identity)
+                yield from cell.paragraphs
+    for section in document.sections:
+        yield from section.footer.paragraphs
+
+
+def validate_soft_wrapping(path: Path, document: Document) -> list[str]:
+    errors = []
+    for index, paragraph in enumerate(document_paragraphs(document), 1):
+        p_pr = paragraph._p.pPr
+        word_wrap = p_pr.find(qn("w:wordWrap")) if p_pr is not None else None
+        suppress = p_pr.find(qn("w:suppressAutoHyphens")) if p_pr is not None else None
+        if word_wrap is None or word_wrap.get(qn("w:val")) not in {"1", "true", "on"}:
+            errors.append(f"{path.name}: paragraph {index} does not enable automatic word wrapping")
+        if suppress is None or suppress.get(qn("w:val")) not in {"1", "true", "on"}:
+            errors.append(f"{path.name}: paragraph {index} does not suppress automatic hyphenation")
+    with ZipFile(path) as archive:
+        document_xml = archive.read("word/document.xml")
+        settings_xml = archive.read("word/settings.xml")
+        for tag in (b"<w:br", b"<w:cr", b"<w:noWrap", b"<w:softHyphen"):
+            if tag in document_xml:
+                errors.append(f"{path.name}: prohibited Word control {tag.decode()} found in document.xml")
+        if re.search(rb"<w:trHeight\b[^>]*w:hRule=\"exact\"", document_xml):
+            errors.append(f"{path.name}: exact row height can clip editable text")
+        if not re.search(rb"<w:autoHyphenation\b[^>]*w:val=\"(?:0|false|off)\"", settings_xml):
+            errors.append(f"{path.name}: document-level automatic hyphenation is not disabled")
+    return errors
+
+
+def validate_major_concerns_remarks(path: Path, document: Document, sow_table) -> list[str]:
+    errors = []
+    outside_paragraphs = document.paragraphs
+    heading = next((paragraph for paragraph in outside_paragraphs if normalize(paragraph.text) == "Remarks: Major Concerns (2025–2028)"), None)
+    if heading is None:
+        return [f"{path.name}: missing table-external Remarks: Major Concerns (2025–2028)"]
+    if document.element.body.index(heading._p) <= document.element.body.index(sow_table._tbl):
+        errors.append(f"{path.name}: Major Concerns Remarks must follow the main SOW table")
+    outside_text = " ".join(normalize(paragraph.text) for paragraph in outside_paragraphs)
+    for code, statement in MAJOR_CONCERNS:
+        if normalize(f"{code}: {statement}") not in outside_text:
+            errors.append(f"{path.name}: Remarks omit or alter the official {code} statement")
+    return errors
 
 
 def validate_docx(path: Path, course: dict, rows: list[dict], source_hash: str, profile: str, language: str) -> list[str]:
@@ -48,6 +103,8 @@ def validate_docx(path: Path, course: dict, rows: list[dict], source_hash: str, 
     table = find_sow_table(document, expected_columns)
     if table is None:
         return errors + [f"{path.name}: no {expected_columns}-column SOW table"]
+    errors.extend(validate_soft_wrapping(path, document))
+    errors.extend(validate_major_concerns_remarks(path, document, table))
     expected_headers = (ZH_HEADERS if language == "zh-Hant-HK" else EN_HEADERS).copy()
     if profile == "compact":
         del expected_headers[4]

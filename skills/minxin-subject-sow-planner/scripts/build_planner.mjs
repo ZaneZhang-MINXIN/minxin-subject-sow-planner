@@ -41,6 +41,7 @@ const widths = {
   source_sha256: 22, scope_id: 24, plan_id: 20, week_id: 18, unit_id: 20, objective_id: 22,
   objective_text: 52, success_evidence: 42, standard_anchor: 34, prerequisite_refs: 26, learning_unit: 34,
   prior_learning: 32, objective_refs: 32, knowledge_content: 42, disciplinary_practice: 38, activities: 54,
+  major_concern_refs: 24,
   evidence: 42, assessment_purpose: 30, feedback_revision: 42, resources: 34, values: 24,
   progression_delta: 34, context_delta: 34, evidence_delta: 34, independence_delta: 34,
   message: 58, record_refs: 36, source_refs: 34, stop_condition: 42, teaching_objectives: 58,
@@ -138,9 +139,9 @@ const notes = {
   Course_Brief: "EDITABLE course authority. One row is one subject/grade/level/class offering.",
   Calendar_Events: "EDITABLE normalized calendar evidence. Confirm REVIEW items and scoped assessment impact.",
   Timetable_Slots: "EDITABLE capacity input. Leave empty rather than guessing a class, teacher, room, or period.",
-  Units: "EDITABLE subject units. Major Concerns require observable evidence and normally map at unit level.",
+  Units: "EDITABLE subject units. Use Major Concerns here as the broad planning map and require observable evidence.",
   Objectives: "EDITABLE assessable outcomes. Preserve exact source anchors and course-scoped prerequisites.",
-  Weekly_Plan: "EDITABLE SINGLE SOURCE OF TRUTH. Word and generated views are derived from these rows.",
+  Weekly_Plan: "EDITABLE SINGLE SOURCE OF TRUTH. Cite MC1-MC3 only for directly aligned objectives; leave blank otherwise.",
   Weeks: "GENERATED — do not edit. Rebuild after calendar or academic-year changes.",
   SOW_View: "GENERATED — do not edit. Normalized lineage view used for all Word exports.",
   QA: "GENERATED — resolve HIGH items before release; MEDIUM items require professional review.",
@@ -166,6 +167,5 @@ await fs.mkdir(path.dirname(input.out), { recursive: true });
 const output = await SpreadsheetFile.exportXlsx(workbook);
 await output.save(input.out);
 await persistFreezeRows(input.out);
-const summary = await workbook.inspect({ kind: "sheet", include: "id,name", maxChars: 4000 });
-console.log(summary.ndjson);
+console.log(`sheets=${SHEETS.length}`);
 console.log(`output=${input.out}`);

@@ -76,9 +76,11 @@ For a pivotal unit, create three genuinely different designs. For each, state th
 
 If the teacher has not chosen, retain the recommended option as `PROPOSED_DESIGN`; never label it approved. Use brainstorming, discussion, commercial analysis, presentation, AI, and group roles only where they produce the evidence required by the objective.
 
-### 5. Map Major Concerns at unit level
+### 5. Map Major Concerns selectively
 
-Use `MC1–MC3` from [minxin-context.md](references/minxin-context.md). A unit usually maps one or two concerns and must include an observable action/evidence note. Do not repeat school slogans in every week.
+Use `MC1–MC3` from [minxin-context.md](references/minxin-context.md). Use `Units.major_concern_refs` for the broad planning map and record an observable action/evidence note. Use `Weekly_Plan.major_concern_refs` only when the linked objective directly and demonstrably advances that concern; otherwise leave it blank. If a row links several objectives, place the directly aligned objective first so the generated marker is unambiguous. Do not tag every week or copy school slogans into table cells.
+
+The Word exporter appends the selected marker, such as `(M1, M3)`, to the first linked Learning Objective. It then prints the complete official Major Concerns (2025–2028) in a table-external `Remarks` section after the main SOW table. Never place the full statements inside the weekly table.
 
 Keep `Values / National Education` to one concise phrase in the Word SOW. Put the actual student action in Activities or Assessment.
 
@@ -126,6 +128,8 @@ python scripts/sow_planner.py export \
 
 Default output is British English and the MINXIN A4 landscape 11-column profile. Use `--profile compact` to hide Prior Learning or `--language zh-Hant-HK` for Traditional Chinese headers. Generate one Word file per `course_id`. Holiday and assessment rows retain official labels and merge the content columns.
 
+Keep Word output fully editable: remove manual line breaks from table-cell text, allow automatic wrapping at spaces, add invisible wrap opportunities after slashes, disable automatic hyphenation, and never split a word by inserting visible hyphens. The generated `Remarks` paragraphs remain outside the SOW table.
+
 ### 9. Validate and release-check
 
 ```bash
@@ -141,7 +145,7 @@ python scripts/sow_planner.py validate ... --release --render-dir <rendered>
 
 Block release for missing/duplicate IDs, invalid or cross-course references, duplicate course-week records, prerequisite inversion, applicable timetable clashes, calculated overload, unscheduled core outcomes before assessment, stale view/Word lineage, macros/external relationships, secrets, or personal metadata. Text similarity and apparently ornamental activities produce human-review warnings; never auto-delete curriculum content.
 
-Render every workbook sheet and every Word page. Inspect header repetition, row splitting, official-event labels, logo anchoring, colours, fonts, blank pages, clipping, and source-to-view-to-Word row lineage.
+Render every workbook sheet and every Word page. Inspect header repetition, row splitting, official-event labels, logo anchoring, colours, fonts, blank pages, clipping, word integrity, table-external Remarks, selective Major Concern citations, and source-to-view-to-Word row lineage.
 
 ## Public commands
 

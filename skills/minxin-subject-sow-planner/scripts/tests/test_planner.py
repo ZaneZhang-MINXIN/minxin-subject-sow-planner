@@ -154,11 +154,23 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["row_type"], "CALENDAR_BLOCK")
 
+    def test_major_concern_citation_is_selective_and_objective_linked(self):
+        fixture = deepcopy(self.fixture)
+        fixture["tables"]["Weekly_Plan"][0]["major_concern_refs"] = "MC2"
+        payload = build_planner_data(fixture, self.calendar)
+        english_rows = [row for row in payload["tables"]["SOW_View"] if row["course_id"] == "ENGLISH-G7-CORE-A"]
+        first = next(row for row in english_rows if row["plan_id"] == "PLAN-ENGLISH-G7-CORE-A-W01")
+        second = next(row for row in english_rows if row["plan_id"] == "PLAN-ENGLISH-G7-CORE-A-W02")
+        self.assertEqual(first["major_concern_refs"], "MC2")
+        self.assertIn("(M2)", first["teaching_objectives"])
+        self.assertNotRegex(second["teaching_objectives"], r"\(M[123]")
+
     def test_curriculum_chain_authority_and_enums_are_checked(self):
         payload = build_planner_data(self.fixture, self.calendar)
         tables = payload["tables"]
         tables["Weekly_Plan"][0]["knowledge_content"] = ""
         tables["Weekly_Plan"][1]["repetition_purpose"] = "NOT_A_VALUE"
+        tables["Weekly_Plan"][2]["major_concern_refs"] = "MC9"
         tables["Units"][0]["major_concern_refs"] = "MC9;MC1;MC2"
         target = tables["Objectives"][0]
         target["standard_anchor"] = ""
@@ -166,7 +178,7 @@ class PlannerTests(unittest.TestCase):
         target["objective_id"] = "UNSCHEDULED"
         issues = validate_tables(tables)
         codes = {issue["code"] for issue in issues}
-        self.assertTrue({"INCOMPLETE_CURRICULUM_CHAIN", "INVALID_REPETITION_PURPOSE", "INVALID_MAJOR_CONCERN_REF", "UNSUPPORTED_OBJECTIVE_ALIGNMENT", "UNSCHEDULED_OBJECTIVE"} <= codes)
+        self.assertTrue({"INCOMPLETE_CURRICULUM_CHAIN", "INVALID_REPETITION_PURPOSE", "INVALID_MAJOR_CONCERN_REF", "INVALID_WEEKLY_MAJOR_CONCERN_REF", "UNSUPPORTED_OBJECTIVE_ALIGNMENT", "UNSCHEDULED_OBJECTIVE"} <= codes)
 
     def test_authority_placeholders_and_before_assessment_are_release_gates(self):
         payload = build_planner_data(self.fixture, self.calendar)
